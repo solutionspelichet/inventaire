@@ -1,86 +1,83 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>PWA Fusion Suivi & Extraction → Google Sheet</title>
-  <link rel="manifest" href="manifest.json" />
-  <meta name="theme-color" content="#0f766e" />
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-    h1 { margin-top: 0; }
-    label { display: block; margin: 8px 0 4px; }
-    input[type="file"] { display:block; margin-bottom: 10px; }
-    .row { display: grid; grid-template-columns: repeat(5, max-content); gap: 8px 16px; align-items: center; }
-    .row input { width: 36px; text-transform: uppercase; }
-    button { padding: 10px 14px; border-radius: 8px; border: 1px solid #0f766e; background:#0f766e; color:#fff; cursor: pointer; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    .muted { color:#666; font-size: 0.9em; }
-    pre { background:#f7f7f7; padding:12px; border-radius:8px; overflow:auto; min-height: 120px; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelichet • Scan → Sheet</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff7a00">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="assets/pelichet-logo.png">
+<!-- ZXing (lecture QR + EAN-13 + Code128 + Code39, etc.) -->
+<script src="https://unpkg.com/@zxing/library@0.20.0"></script>
 </head>
 <body>
-  <h1>Fusion Suivi + Extraction → Google Sheet</h1>
+<header class="app-header">
+<img src="assets/pelichet-logo.png" alt="Pelichet" class="logo">
+<h1>Scan → Google Sheets</h1>
+</header>
 
-  <div class="card">
-    <p class="muted">Charge <b>2 fichiers .xlsx</b> (Suivi & Extraction). Le navigateur calcule <i>resultats</i> et <i>ML (×0.35)</i> puis envoie vers Google Sheets (Apps Script).</p>
-  </div>
 
-  <div class="card">
-    <h3>Fichiers d’entrée</h3>
-    <label>Fichier de suivi (.xlsx)</label>
-    <input id="suiviFile" type="file" accept=".xlsx,.xlsm,.xls" />
-    <label>Fichier d’extraction (.xlsx)</label>
-    <input id="extractFile" type="file" accept=".xlsx,.xlsm,.xls" />
-  </div>
+<main class="container">
+<section class="card">
+<h2>1) Scanner un code</h2>
+<div class="video-wrap">
+<video id="preview" autoplay playsinline></video>
+</div>
+<div class="row">
+<button id="btnStart">Démarrer la caméra</button>
+<button id="btnStop" disabled>Arrêter</button>
+<select id="cameraSelect"></select>
+</div>
+<div class="row">
+<label>Code détecté</label>
+<input id="codeValue" type="text" placeholder="OU saisie manuelle si besoin">
+<select id="codeType">
+<option value="auto">Auto</option>
+<option value="QR_CODE">QR</option>
+<option value="EAN_13">EAN-13</option>
+<option value="CODE_128">Code 128</option>
+<option value="CODE_39">Code 39</option>
+</select>
+</div>
+</section>
 
-  <div class="card">
-    <h3>Paramètres (lettres de colonnes)</h3>
-    <div class="row">
-      <strong>Suivi</strong>
-      <label>Clé</label><input id="s_key" value="B" />
-      <label>Utilisateur</label><input id="s_user" value="A" />
-      <label>Somme</label><input id="s_sum" value="K" />
-      <label>Date (avec heure)</label><input id="s_date" value="D" />
-      <label>Date pour entête</label><input id="s_head" value="D" />
-    </div>
-    <div class="row" style="margin-top:10px">
-      <strong>Extraction</strong>
-      <label>Clé</label><input id="e_key" value="D" />
-      <label>Utilisateur</label><input id="e_user" value="B" />
-      <label>Somme</label><input id="e_sum" value="N" />
-      <label>Date (avec heure)</label><input id="e_date" value="A" />
-      <label>Date pour entête</label><input id="e_head" value="A" />
-    </div>
-  </div>
 
-  <div class="card">
-    <h3>Envoi vers Google Sheets</h3>
-    <label>Apps Script Web App URL</label>
-    <input id="gasUrl" style="width:100%" value="https://script.google.com/macros/s/AKfycbxqCXzHjT94GsKTIMdjvVSKejeQrrxJyRVmiBFSKrXQp6DPJX3nWzcpe4iCYQROqrBq1A/exec" />
-    <label>Shared Secret (sécurité)</label>
-    <input id="secret" style="width:300px" type="password" placeholder="secret facultatif" />
-    <!-- Fallback inline pour être sûr que le clic appelle la fonction même si addEventListener a échoué -->
-    <button id="runBtn" onclick="onRun()">Lancer le traitement</button>
-    <button id="testBtn" style="margin-left:8px;background:#155e75;border-color:#155e75" onclick="testConnexion()">Tester connexion</button>
-    <div class="muted" style="margin-top:8px">Google Sheet cible : <code>1AptbV2NbY0WQZpe_Xt1K2iVlDpgKADElamKQCg3GcXQ</code></div>
-  </div>
+<section class="card">
+<h2>2) Détails du mouvement</h2>
+<div class="row">
+<label for="depart">Lieu de départ</label>
+<select id="depart"></select>
+</div>
+<div class="row">
+<label for="destination">Lieu de destination</label>
+<select id="destination"></select>
+</div>
+<div class="row">
+<label for="dateMvt">Date du mouvement</label>
+<input id="dateMvt" type="date">
+</div>
+<div class="row">
+<label for="notes">Notes (optionnel)</label>
+<input id="notes" type="text" placeholder="Observation">
+</div>
+<div class="row">
+<button id="btnSubmit">Enregistrer</button>
+</div>
+<p id="status" class="status"></p>
+</section>
+</main>
 
-  <div class="card">
-    <h3>Journal</h3>
-    <pre id="log"></pre>
-  </div>
 
-  <!-- CDN SheetJS en premier -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <!-- Votre logique (doit exposer onRun/testConnexion en global) -->
-  <script src="app.js"></script>
+<footer class="app-footer">© Pelichet</footer>
 
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./service-worker.js');
-    }
-  </script>
+
+<script>window.APP_CONFIG = { API_URL: 'PASTE_YOUR_APPS_SCRIPT_WEBAPP_URL_HERE' };</script>
+<script src="script.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+navigator.serviceWorker.register('./service-worker.js');
+}
+</script>
 </body>
 </html>
