@@ -2,23 +2,16 @@
 const API_URL = window.APP_CONFIG.API_URL;
 const TZ = 'Europe/Zurich';
 
-// ZXing + hints (formats + try harder)
+// ===== ZXing import =====
 const { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } = ZXing;
-const hints = new Map();
-hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-  BarcodeFormat.QR_CODE,
-  BarcodeFormat.EAN_13,
-  BarcodeFormat.CODE_128,
-  BarcodeFormat.CODE_39
-]);
-hints.set(DecodeHintType.TRY_HARDER, true);
-// interval 300ms
-const codeReader = new BrowserMultiFormatReader(hints, 300);
 
 // ===== State =====
 let scanning = false, lastCode = null, lastTime = 0;
 let currentDeviceId = null;
-let videoTrack = null; // pour torch & zoom
+let videoTrack = null;
+let codeReader = null;       // recréé à chaque changement de format
+let currentFormats = null;   // formats actifs
+let currentHints = null;
 
 // ===== DOM =====
 const els = {
@@ -45,12 +38,35 @@ function setStatus(msg, ok=true){
   els.status.textContent = msg || '';
   els.status.style.color = ok ? 'green' : 'crimson';
 }
-
 function todayISO(){
   const d = new Date();
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 }
 els.dateMvt.value = todayISO();
+
+// ===== Formats & hints =====
+function buildHintsFromUI(){
+  const val = els.codeType.value;
+  let formats;
+  if (val === 'QR_CODE') formats = [BarcodeFormat.QR_CODE];
+  else if (val === 'EAN_13') formats = [BarcodeFormat.EAN_13];
+  else if (val === 'CODE_128') formats = [BarcodeFormat.CODE_128];
+  else if (val === 'CODE_39') formats = [BarcodeFormat.CODE_39];
+  else formats = [BarcodeFormat.QR_CODE, BarcodeFormat.EAN_13, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39];
+
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  return { formats, hints };
+}
+
+function recreateReader(){
+  const { formats, hints } = buildHintsFromUI();
+  currentFormats = formats;
+  currentHints = hints;
+  // 300 ms throttle
+  codeReader = new BrowserMultiFormatReader(hints, 300);
+}
 
 // ===== Permissions & cam list =====
 async function ensurePermission(){
@@ -87,7 +103,6 @@ function waitForStream(){
 }
 
 function initCameraControls(){
-  // Réinitialise l'UI
   els.btnTorch.disabled = true;
   els.btnTorch.dataset.on = '0';
   els.btnTorch.textContent = 'Lampe OFF';
@@ -102,9 +117,7 @@ function initCameraControls(){
   const caps = typeof videoTrack.getCapabilities === 'function' ? videoTrack.getCapabilities() : {};
 
   // Torch
-  if (caps && 'torch' in caps) {
-    els.btnTorch.disabled = false;
-  }
+  if (caps && 'torch' in caps) els.btnTorch.disabled = false;
 
   // Zoom
   if (caps && 'zoom' in caps) {
@@ -112,13 +125,12 @@ function initCameraControls(){
     els.zoomRange.min = min;
     els.zoomRange.max = max;
     els.zoomRange.step = step || 0.1;
-    // Si on a des settings existants, les refléter
     try{
       const settings = videoTrack.getSettings ? videoTrack.getSettings() : {};
       const current = settings.zoom ?? min;
       els.zoomRange.value = current;
       els.zoomValue.textContent = `${Number(current).toFixed(1)}×`;
-    }catch{ /* ignore */ }
+    }catch{}
     els.zoomWrap.hidden = false;
   }
 }
@@ -131,12 +143,8 @@ async function setTorch(on){
   try{
     await videoTrack.applyConstraints({ advanced: [{ torch: !!on }] });
     return true;
-  }catch(e){
-    console.warn('Torch error:', e);
-    return false;
-  }
+  }catch(e){ console.warn('Torch error:', e); return false; }
 }
-
 async function setZoom(value){
   if (!videoTrack || !videoTrack.getCapabilities) return false;
   const caps = videoTrack.getCapabilities();
@@ -145,13 +153,8 @@ async function setZoom(value){
     await videoTrack.applyConstraints({ advanced: [{ zoom: Number(value) }] });
     els.zoomValue.textContent = `${Number(value).toFixed(1)}×`;
     return true;
-  }catch(e){
-    console.warn('Zoom error:', e);
-    return false;
-  }
+  }catch(e){ console.warn('Zoom error:', e); return false; }
 }
-
-// UI events
 els.btnTorch.addEventListener('click', async () => {
   const on = els.btnTorch.dataset.on === '1';
   const ok = await setTorch(!on);
@@ -159,18 +162,16 @@ els.btnTorch.addEventListener('click', async () => {
     els.btnTorch.dataset.on = on ? '0' : '1';
     els.btnTorch.textContent = on ? 'Lampe OFF' : 'Lampe ON';
   } else {
-    alert("Lampe non supportée sur cet appareil/caméra.");
+    alert("Lampe non supportée sur cette caméra.");
   }
 });
-
-els.zoomRange.addEventListener('input', (e) => {
-  // On applique sans attendre (best effort)
-  setZoom(e.target.value);
-});
+els.zoomRange.addEventListener('input', (e) => setZoom(e.target.value));
 
 // ===== Start/Stop scan =====
 async function start(){
   try{
+    recreateReader();
+
     els.video.setAttribute('playsinline','true');
     els.video.muted = true;
 
@@ -180,12 +181,13 @@ async function start(){
 
     const selectedId = els.camSel.value || cams[0].deviceId;
 
+    // Très haute résolution pour aider les 1D
     const constraints = {
       video: {
         deviceId: selectedId ? { exact: selectedId } : undefined,
         facingMode: { ideal: 'environment' },
-        width:  { ideal: 1920 },
-        height: { ideal: 1080 },
+        width:  { ideal: 2560 },
+        height: { ideal: 1440 },
         focusMode: 'continuous',
         advanced: [{ focusMode: 'continuous' }]
       },
@@ -206,14 +208,19 @@ async function start(){
       }
     });
 
-    // Quand le flux est prêt, activer torch/zoom si dispo
     await waitForStream();
     initCameraControls();
 
     scanning = true;
     els.btnStart.disabled = true;
     els.btnStop.disabled = false;
-    setStatus("Caméra démarrée");
+
+    // Message de guidance selon format
+    if (currentFormats && currentFormats.length === 1 && currentFormats[0] !== BarcodeFormat.QR_CODE) {
+      setStatus("Caméra démarrée. Astuce: tenez le code 1D bien horizontal, plein cadre (60–80%), bonne lumière.");
+    } else {
+      setStatus("Caméra démarrée (Auto). Essayez un QR puis vos codes 1D.");
+    }
   }catch(e){
     console.error(e);
     setStatus("Impossible de démarrer la caméra. Vérifiez l'autorisation et réessayez.", false);
@@ -221,7 +228,7 @@ async function start(){
 }
 
 function stop(){
-  try { codeReader.reset(); } catch {}
+  try{ if (codeReader) codeReader.reset(); }catch{}
   const s = els.video.srcObject;
   if (s && s.getTracks) s.getTracks().forEach(t => t.stop());
   els.video.srcObject = null;
@@ -238,7 +245,10 @@ function stop(){
   setStatus("Caméra arrêtée");
 }
 
+// Changer de caméra ou de format => restart
 els.camSel.addEventListener('change', () => { if (scanning) { stop(); start(); } });
+els.codeType.addEventListener('change', () => { if (scanning) { stop(); start(); } });
+
 els.btnStart.addEventListener('click', start);
 els.btnStop.addEventListener('click', stop);
 
