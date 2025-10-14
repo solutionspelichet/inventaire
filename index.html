@@ -4,12 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pelichet • Scan → Sheet</title>
-<link rel="manifest" href="manifest.json">
+
 <meta name="theme-color" content="#ff7a00">
-<link rel="stylesheet" href="style.css">
-<link rel="icon" href="assets/pelichet-logo.png">
-<!-- ZXing (lecture QR + EAN-13 + Code128 + Code39, etc.) -->
+
+
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./assets/pelichet-logo.png">
+<img src="./assets/pelichet-logo.png" alt="Pelichet" class="logo">
 <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+  
 </head>
 <body>
 <header class="app-header">
@@ -72,12 +75,11 @@
 <footer class="app-footer">© Pelichet</footer>
 
 
-<script>window.APP_CONFIG = { API_URL: 'https://script.google.com/macros/s/AKfycbx3xXSvHYh40FzislJXiR9knA_B7H5T_awb1fFmzRJTOMzh5_4aUbl6IvRc7-3M8psu/exec' };</script>
-<script src="script.js"></script>
 <script>
-if ('serviceWorker' in navigator) {
-navigator.serviceWorker.register('./service-worker.js');
-}
+  window.APP_CONFIG = {
+    API_URL: 'https://script.google.com/macros/s/AKfycbx3xXSvHYh40FzislJXiR9knA_B7H5T_awb1fFmzRJTOMzh5_4aUbl6IvRc7-3M8psu/exec'
+  };
 </script>
+<script src="./script.js"></script>
 </body>
 </html>
