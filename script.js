@@ -64,15 +64,18 @@ await listCameras();
 const devId = els.camSel.value || currentDeviceId;
 currentDeviceId = devId;
 await codeReader.decodeFromVideoDevice(devId, els.video, (result, err)=>{
-if(result){
-const code = result.getText();
-const now = Date.now();
-if (code === lastCode && (now - lastTime) < 8000){
-alert('⚠️ Code identique scanné à la suite. Voulez-vous l'enregistrer à nouveau ?');
-// on n'arrête pas, mais on laisse l'utilisateur décider via le bouton Enregistrer
+if (result) {
+  const code = result.getText();
+  const now = Date.now();
+  if (code === lastCode && (now - lastTime) < 8000) {
+    // Alerte anti-doublon (chaine sans emoji et apostrophes échappées)
+    alert('Attention : même code scanné à la suite. Voulez-vous l\'enregistrer à nouveau ?');
+  }
+  els.codeValue.value = code;
+  lastCode = code; 
+  lastTime = now;
 }
-els.codeValue.value = code;
-lastCode = code; lastTime = now;
+
 } else if (err && !(err instanceof NotFoundException)) {
 console.warn(err);
 }
