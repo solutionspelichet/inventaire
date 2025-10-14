@@ -1,6 +1,21 @@
+// Après la création du flux vidéo
+const stream = els.video.srcObject;
+const track = stream.getVideoTracks()[0];
+const capabilities = track.getCapabilities();
+if (capabilities.focusDistance) {
+  // on met un focus moyen (1 = loin, 0 = près)
+  await track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: 0.5 }] });
+}
+
+
+
+
 // ===== Config =====
 const API_URL = window.APP_CONFIG.API_URL;
 const TZ = 'Europe/Zurich';
+
+
+
 
 // ===== ZXing import =====
 const { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } = ZXing;
