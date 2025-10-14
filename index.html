@@ -9,9 +9,7 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="icon" href="./assets/pelichet-logo.png">
   <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
-  
-<script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.js"></script> <!-- ⬅️ ajout -->
-
+  <script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.js"></script>
 </head>
 
 <body>
@@ -24,23 +22,35 @@
     <section class="card">
       <h2>1) Scanner un code</h2>
 
-      <div class="video-wrap" id="videoWrap">
-        <video id="preview" autoplay playsinline muted></video>
-        <!-- Overlay cadre + métrique netteté -->
-        <canvas id="overlay"></canvas>
-        <div id="focusMeter" class="focus-meter">Net: —</div>
-      </div>
-
       <div class="row">
         <button id="btnStart">Démarrer la caméra</button>
         <button id="btnStop" disabled>Arrêter</button>
+
         <select id="cameraSelect" title="Caméra"></select>
+        <!-- Nouveau : choix de résolution et moteur -->
+        <select id="resSelect" title="Résolution">
+          <option value="1280x720">720p</option>
+          <option value="1920x1080" selected>1080p</option>
+          <option value="2560x1440">1440p</option>
+          <option value="3840x2160">2160p</option>
+        </select>
+        <select id="engineSelect" title="Moteur">
+          <option value="auto" selected>Auto (Natif → ZXing → Quagga)</option>
+          <option value="native">Natif (BarcodeDetector)</option>
+          <option value="zxing">ZXing</option>
+          <option value="quagga">Quagga 1D</option>
+        </select>
       </div>
 
-      <!-- Contrôles caméra -->
+      <div class="video-wrap" id="videoWrap">
+        <video id="preview" autoplay playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="focusMeter" class="focus-meter">Net: —</div>
+        <div id="diag" class="focus-meter" style="left:10px; right:auto;">–</div>
+      </div>
+
       <div class="row controls">
         <button id="btnTorch" class="secondary" disabled>Lampe OFF</button>
-
         <div id="zoomWrap" class="zoom-wrap" hidden>
           <label for="zoomRange">Zoom</label>
           <input id="zoomRange" type="range" min="1" max="1" step="0.1" value="1">
