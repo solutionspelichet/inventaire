@@ -354,4 +354,145 @@ function quaggaReaders(){
   const v=els.codeType.value;
   if (v==='EAN_13') return ['ean_reader'];
   if (v==='CODE_128') return ['code_128_reader'];
-  if (v==='CODE_
+  if (v==='CODE_39') return ['code_39_reader'];
+  return ['ean_reader','code_128_reader','code_39_reader'];
+}
+function startQuagga(){
+  if (usingQuagga) return; usingQuagga=true;
+  stopNativeLoop(); stopZXing();
+  const delay = isSamsungS24()? 300 : 50;
+  setTimeout(()=>{
+    Quagga.init({
+      inputStream:{
+        name:'Live', type:'LiveStream', target:els.videoWrap,
+        constraints:{ deviceId: selectedDeviceId?{exact:selectedDeviceId}:undefined, width:{ideal:selectedWidth}, height:{ideal:selectedHeight} }
+      },
+      locator:{ patchSize:'medium', halfSample:true },
+      numOfWorkers: 2, frequency: 15,
+      decoder:{ readers: quaggaReaders() },
+      locate: true,
+      area:{ top:"39%", right:"7%", left:"7%", bottom:"39%" }
+    }, (err)=>{
+      if (err){ console.error(err); setStatus('Erreur Quagga: '+err.message,false); usingQuagga=false; return; }
+      Quagga.start(); setStatus('Lecture 1D (Quagga)…');
+    });
+    Quagga.onDetected((res)=>{
+      const code = res?.codeResult?.code;
+      if (!code) return;
+      if (els.codeType.value==='EAN_13' && !ean13IsValid(code)) return;
+      els.codeValue.value = code; lastCode=code; lastTime=Date.now();
+      setStatus('✅ Code détecté (Quagga)'); feedback(); stopQuagga();
+    });
+  }, delay);
+}
+function stopQuagga(){ if (!usingQuagga) return; try{ Quagga.stop(); }catch{} Quagga.offDetected(()=>{}); usingQuagga=false; }
+
+// ===== Start/Stop =====
+async function start(){
+  try{
+    await ensurePermission();
+    const cams = await listCameras();
+    if (!cams.length){ setStatus("Aucune caméra détectée.", false); return; }
+
+    // lire résolution choisie
+    const [w,h] = els.resSel.value.split('x').map(n=>parseInt(n,10));
+    selectedWidth = w; selectedHeight = h;
+    selectedEngine = els.engineSel.value;
+
+    const stream = await openStream();
+    attachStream(stream);
+
+    els.video.setAttribute('playsinline','true'); els.video.muted = true;
+    await new Promise(r => els.video.onloadedmetadata = r);
+
+    initCamControls();
+    startOverlayLoop();
+
+    // Moteur choisi
+    const nativeOk = await setupDetector();
+    if (selectedEngine==='native' || (selectedEngine==='auto' && nativeOk)){
+      startNativeLoop();
+    } else if (selectedEngine==='zxing' || (selectedEngine==='auto' && !nativeOk)) {
+      startZXing();
+    } else {
+      startQuagga();
+    }
+
+    // Fallback vers Quagga pour 1D si rien au bout de 3–4s
+    if (selectedEngine!=='quagga'){
+      const t = is1DMode() ? 2500 : 4000;
+      fallbackTimer = setTimeout(()=>{
+        if (!usingQuagga && els.codeType.value!=='QR_CODE') startQuagga();
+      }, t);
+    }
+
+    scanning = true; els.btnStart.disabled = true; els.btnStop.disabled = false;
+    setStatus('Caméra démarrée');
+  }catch(e){
+    console.error(e);
+    setStatus("Impossible de démarrer la caméra. Vérifiez l'autorisation et réessayez.", false);
+  }
+}
+
+function stop(){
+  stopNativeLoop(); stopZXing(); stopQuagga();
+  if (fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer=null; }
+  try{ if (currentStream) currentStream.getTracks().forEach(t=>t.stop()); }catch{}
+  currentStream=null; videoTrack=null;
+  stopOverlayLoop();
+
+  els.btnStart.disabled=false; els.btnStop.disabled=true;
+  els.btnTorch.disabled=true; els.zoomWrap.hidden=true;
+  els.btnTorch.dataset.on='0'; els.btnTorch.textContent='Lampe OFF';
+  setStatus("Caméra arrêtée");
+  scanning=false;
+}
+function restart(){ stop(); start(); }
+
+// ===== Lists & Submit =====
+async function loadListes(){
+  try{
+    setStatus("Chargement des listes…");
+    const r = await fetch(`${API_URL}?action=listes`);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error||"Erreur listes");
+    fill(els.depart, j.depart); fill(els.destination, j.destination);
+    setStatus("Listes chargées");
+  }catch(e){ setStatus("Erreur listes: "+e.message, false); }
+}
+function fill(sel, arr){ sel.innerHTML=''; arr.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); }); }
+
+els.submit.addEventListener('click', async ()=>{
+  try{
+    const code=els.codeValue.value.trim(), type=els.codeType.value, dep=els.depart.value, dst=els.destination.value, dateMvt=els.dateMvt.value;
+    if (!code) throw new Error("Code manquant");
+    if (!dep) throw new Error("Lieu de départ manquant");
+    if (!dst) throw new Error("Lieu de destination manquant");
+    const maxFutureDays=7, today=new Date(todayISO()), userD=new Date(dateMvt);
+    if ((userD - today)/86400000 > maxFutureDays) throw new Error("Date trop loin dans le futur (>7 jours)");
+
+    const tzLocal = new Intl.DateTimeFormat('en-GB',{ timeZone:TZ, dateStyle:'short', timeStyle:'medium' }).format(new Date());
+    const data = new URLSearchParams({
+      code_scanné: code, type_code: type, lieu_depart: dep, lieu_destination: dst, date_mouvement: dateMvt,
+      timestamp_utc: new Date().toISOString(), timestamp_local: tzLocal, device_id: navigator.userAgent, user_id:'', notes: els.notes.value||''
+    });
+
+    const resp = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:data.toString() });
+    const j = await resp.json();
+    if (!j.ok) throw new Error(j.error||"Erreur API");
+
+    setStatus("✅ Enregistré dans Google Sheets"); els.notes.value='';
+    restart();
+  }catch(e){ setStatus("❌ "+e.message, false); }
+});
+
+// ===== Events =====
+els.btnStart.addEventListener('click', start);
+els.btnStop.addEventListener('click', stop);
+els.camSel.addEventListener('change', ()=>{ selectedDeviceId = els.camSel.value; if (scanning) restart(); });
+els.resSel.addEventListener('change', ()=>{ if (scanning) restart(); });
+els.engineSel.addEventListener('change', ()=>{ if (scanning) restart(); });
+els.codeType.addEventListener('change', ()=>{ if (scanning) restart(); });
+
+// Init
+window.addEventListener('load', loadListes);
