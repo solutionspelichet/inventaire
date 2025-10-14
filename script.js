@@ -9,9 +9,9 @@ const { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeForm
 let scanning = false, lastCode = null, lastTime = 0;
 let videoTrack = null, codeReader = null;
 let currentFormats = null, currentHints = null;
-let rafId = null; // overlay loop
-let fallbackTimer = null; // déclenche Quagga si ZXing n'accroche pas
-let usingQuagga = false;
+let rafId = null;           // overlay loop
+let fallbackTimer = null;   // déclenche Quagga si ZXing n'accroche pas
+let usingQuagga = false;    // fallback actif ?
 
 // ===== DOM =====
 const els = {
@@ -43,6 +43,37 @@ function setStatus(msg, ok=true){ els.status.textContent = msg||''; els.status.s
 function todayISO(){ return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date()); }
 els.dateMvt.value = todayISO();
 
+// ===== Feedback (bip + vibration + flash cadre) =====
+function feedback(){
+  // Web Audio beep ~120ms
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.value = 880; // aigu = “ok”
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.14);
+  }catch{}
+
+  // Vibration (Android/quelques browsers)
+  if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+
+  // Flash vert sur l’overlay
+  const ctx = els.overlay.getContext('2d');
+  if (!ctx) return;
+  const w = els.overlay.width, h = els.overlay.height;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(50,205,50,0.95)'; // vert
+  ctx.lineWidth = 5;
+  ctx.setLineDash([]);
+  ctx.strokeRect(4,4,w-8,h-8);
+  ctx.restore();
+  setTimeout(()=>{ /* effacé au prochain redraw loop */ }, 120);
+}
+
 // ===== Hints selon le menu =====
 function buildHintsFromUI(){
   const val = els.codeType.value;
@@ -62,7 +93,7 @@ function recreateReader(){
   const { formats, hints } = buildHintsFromUI();
   currentFormats = formats;
   currentHints = hints;
-  codeReader = new BrowserMultiFormatReader(hints, 250); // 250ms
+  codeReader = new BrowserMultiFormatReader(hints, 250); // 250ms throttle
 }
 function is1DSelected(){
   const f = currentFormats || [];
@@ -197,32 +228,24 @@ function stopOverlayLoop(){ cancelAnimationFrame(rafId); rafId=null; const c=els
 
 // ===== Quagga2 Fallback (1D) =====
 function quaggaReaders(){
-  // Map formats -> quagga readers
   if (is1DSelected()){
     const f = currentFormats[0];
     if (f === BarcodeFormat.EAN_13) return ['ean_reader'];
     if (f === BarcodeFormat.CODE_128) return ['code_128_reader'];
     if (f === BarcodeFormat.CODE_39) return ['code_39_reader'];
   }
-  // auto 1D set
   return ['ean_reader','code_128_reader','code_39_reader'];
 }
 function startQuagga(){
   if (usingQuagga) return;
   usingQuagga = true;
-  // Arrête ZXing proprement
   try{ codeReader && codeReader.reset(); }catch{}
-  // Lance Quagga dans le conteneur vidéo
   Quagga.init({
     inputStream: {
       name: 'Live',
       type: 'LiveStream',
-      target: els.videoWrap,           // Quagga gère son propre <video>/<canvas>
-      constraints: {
-        facingMode: 'environment',
-        width: { ideal: 1920 },
-        height:{ ideal: 1080 }
-      }
+      target: els.videoWrap,
+      constraints: { facingMode: 'environment', width:{ideal:1920}, height:{ideal:1080} }
     },
     locator: { patchSize: 'medium', halfSample: true },
     numOfWorkers: 2,
@@ -234,9 +257,7 @@ function startQuagga(){
     Quagga.start();
     setStatus('Lecture 1D (fallback) en cours…');
   });
-
   Quagga.onDetected(onQuaggaDetected);
-  Quagga.onProcessed(()=>{}); // hook si besoin de debug overlay
 }
 function stopQuagga(){
   if (!usingQuagga) return;
@@ -250,12 +271,11 @@ function onQuaggaDetected(res){
   els.codeValue.value = code;
   lastCode = code; lastTime = Date.now();
   setStatus('✅ Code 1D détecté (fallback)');
-  // On peut arrêter après 1 détection
-  stopQuagga();
-  // Option : relancer ZXing si tu veux continuer en boucle
+  feedback();              // 🔊💥 feedback à la détection
+  stopQuagga();            // on arrête Quagga après un hit
 }
 
-// ===== Start/Stop scan =====
+// ===== Start/Stop/Restart scan =====
 async function start(){
   try{
     recreateReader();
@@ -280,9 +300,8 @@ async function start(){
       audio: false
     };
 
-    // Démarre ZXing
     await codeReader.decodeFromConstraints(constraints, els.video, (result, err) => {
-      if (usingQuagga) return; // si fallback actif, ignore callback ZXing
+      if (usingQuagga) return; // si fallback actif, on ignore ZXing
       if (result){
         const code = result.getText();
         const now = Date.now();
@@ -292,7 +311,7 @@ async function start(){
         els.codeValue.value = code;
         lastCode = code; lastTime = now;
         setStatus('✅ Code détecté');
-        // reset timer de fallback si besoin
+        feedback(); // 🔊💥 feedback à la détection
         if (fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
       } else if (err && !(err instanceof NotFoundException)){
         console.warn(err);
@@ -303,12 +322,9 @@ async function start(){
     initCameraControls();
     startOverlayLoop();
 
-    // Si 1D explicite -> fallback rapide (2.5s)
-    // Si Auto -> on laisse 4s à ZXing, puis fallback pour 1D
     const timeoutMs = is1DSelected() ? 2500 : 4000;
     fallbackTimer = setTimeout(()=>{
       if (!usingQuagga){
-        // si QR sélectionné explicitement, pas de fallback
         const onlyQR = currentFormats?.length===1 && currentFormats[0]===BarcodeFormat.QR_CODE;
         if (!onlyQR) startQuagga();
       }
@@ -342,10 +358,11 @@ function stop(){
   scanning = false;
   setStatus("Caméra arrêtée");
 }
+function restartScan(){ stop(); start(); }
 
 // ===== Events =====
-els.camSel.addEventListener('change', ()=>{ if (scanning) { stop(); start(); } });
-els.codeType.addEventListener('change', ()=>{ if (scanning) { stop(); start(); } });
+els.camSel.addEventListener('change', ()=>{ if (scanning) { restartScan(); } });
+els.codeType.addEventListener('change', ()=>{ if (scanning) { restartScan(); } });
 els.btnStart.addEventListener('click', start);
 els.btnStop.addEventListener('click', stop);
 
@@ -361,23 +378,35 @@ async function loadListes(){
   }catch(e){ setStatus("Erreur listes: "+e.message, false); }
 }
 function fill(sel, arr){ sel.innerHTML=''; arr.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); }); }
+
 els.submit.addEventListener('click', async ()=>{
   try{
     const code = els.codeValue.value.trim(), type=els.codeType.value, dep=els.depart.value, dst=els.destination.value, dateMvt=els.dateMvt.value;
     if (!code) throw new Error("Code manquant");
     if (!dep) throw new Error("Lieu de départ manquant");
     if (!dst) throw new Error("Lieu de destination manquant");
+
     const maxFutureDays=7, today=new Date(todayISO()), userD=new Date(dateMvt);
     if ((userD - today)/86400000 > maxFutureDays) throw new Error("Date trop loin dans le futur (>7 jours)");
+
     const tzLocal = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, dateStyle:'short', timeStyle:'medium' }).format(new Date());
     const data = new URLSearchParams({
       code_scanné: code, type_code: type, lieu_depart: dep, lieu_destination: dst, date_mouvement: dateMvt,
       timestamp_utc: new Date().toISOString(), timestamp_local: tzLocal, device_id: navigator.userAgent, user_id:'', notes: els.notes.value || ''
     });
+
     const r = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: data.toString()});
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || "Erreur API");
-    setStatus("✅ Enregistré dans Google Sheets"); els.notes.value='';
+
+    setStatus("✅ Enregistré dans Google Sheets");
+    els.notes.value='';
+
+    // 🔁 Réinitialise proprement la prise vidéo après enregistrement
+    restartScan();
+
   }catch(e){ setStatus("❌ "+e.message, false); }
 });
+
+// Init
 window.addEventListener('load', loadListes);
