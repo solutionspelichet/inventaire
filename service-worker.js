@@ -5,7 +5,7 @@ const ASSETS = [
   './style.css',
   './script.js',
   './manifest.json',
-  './assets/pelichet-logo.png'
+  './assets/logo-pelichet.png'
 ];
 
 self.addEventListener('install', (e) => {
