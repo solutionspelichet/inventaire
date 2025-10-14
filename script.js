@@ -12,6 +12,8 @@ let currentFormats = null, currentHints = null;
 let rafId = null;                // overlay loop
 let fallbackTimer = null;        // déclenche Quagga si ZXing n'accroche pas
 let usingQuagga = false;         // fallback actif ?
+let currentStream = null;
+let selectedDeviceId = null;
 
 // ===== DOM =====
 const els = {
@@ -39,40 +41,20 @@ const els = {
   status: document.getElementById('status')
 };
 
+// ===== Helpers =====
 function setStatus(msg, ok=true){ els.status.textContent = msg||''; els.status.style.color = ok?'green':'crimson'; }
 function todayISO(){ return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date()); }
 els.dateMvt.value = todayISO();
 
-// --- Détection Samsung S24 (S921/S926/S928) ---
+// Samsung S24 ?
 function isSamsungS24() {
   const ua = navigator.userAgent || "";
   return /SM-S92(1|6|8)/i.test(ua) || (/S24/i.test(ua) && /Samsung/i.test(ua));
 }
 
-// --- Contraintes vidéo adaptées ---
-function getVideoConstraints(selectedId) {
-  const base = {
-    facingMode: { ideal: 'environment' },
-    width:  { ideal: 1920 },
-    height: { ideal: 1080 },
-    frameRate: { ideal: 30 },
-    focusMode: 'continuous',
-    advanced: [{ focusMode: 'continuous' }]
-  };
-  if (selectedId) base.deviceId = { exact: selectedId };
-
-  // ⚠️ Sur S24, on passe en 1280x720 / 30fps pour stabiliser autofocus/torch
-  if (isSamsungS24()) {
-    base.width  = { ideal: 1280, max: 1280 };
-    base.height = { ideal: 720,  max: 720  };
-    base.frameRate = { ideal: 30, max: 30 };
-  }
-  return { video: base, audio: false };
-}
-
 // ===== Feedback (bip + vibration + flash cadre) =====
 function feedback(){
-  try{ // Web Audio beep ~120ms
+  try{
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     const osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.type='sine'; osc.frequency.value=880;
@@ -115,7 +97,7 @@ function is1DSelected(){
   return f.length===1 && (f[0]===BarcodeFormat.EAN_13 || f[0]===BarcodeFormat.CODE_128 || f[0]===BarcodeFormat.CODE_39);
 }
 
-// ===== Permissions / cam list =====
+// ===== Permissions / cameras =====
 async function ensurePermission(){
   const s = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
   s.getTracks().forEach(t=>t.stop());
@@ -125,15 +107,11 @@ async function listCamerasAfterPermission(){
   const cams = devices.filter(d=>d.kind==='videoinput');
   els.camSel.innerHTML='';
   cams.forEach((c,i)=>{ const o=document.createElement('option'); o.value=c.deviceId; o.textContent=c.label||`Caméra ${i+1}`; els.camSel.appendChild(o); });
+  // Sélectionne arrière si dispo
   const back = cams.find(c=>/back|rear|environment/i.test(c.label));
   if (back) els.camSel.value = back.deviceId;
+  selectedDeviceId = els.camSel.value || (cams[0] && cams[0].deviceId) || null;
   return cams;
-}
-function waitForStream(){
-  return new Promise(resolve=>{
-    if (els.video.srcObject) return resolve();
-    els.video.addEventListener('loadedmetadata', ()=>resolve(), { once:true });
-  });
 }
 
 // ===== Torch / Zoom =====
@@ -141,8 +119,8 @@ function initCameraControls(){
   els.btnTorch.disabled=true; els.btnTorch.dataset.on='0'; els.btnTorch.textContent='Lampe OFF';
   els.zoomWrap.hidden=true;
 
-  if (!els.video.srcObject) return;
-  const tracks = els.video.srcObject.getVideoTracks();
+  if (!currentStream) return;
+  const tracks = currentStream.getVideoTracks();
   const track = tracks && tracks[0] ? tracks[0] : null;
   videoTrack = track;
   if (!track) return;
@@ -161,38 +139,49 @@ function initCameraControls(){
   }
 }
 
-// Torch « double voie » (constraints puis ImageCapture)
-async function setTorch(on){
-  if (!videoTrack) return false;
-
-  // 1) Tentative standard via applyConstraints
-  try {
-    const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
-    if (caps && 'torch' in caps) {
-      await videoTrack.applyConstraints({ advanced: [{ torch: !!on }] });
-      return true;
+// Torch standard + fallback ImageCapture + fallback « torch d’écran »
+let screenTorchOn = false;
+function screenTorch(enable){
+  let overlay = document.getElementById('screenTorch');
+  if (enable){
+    if (!overlay){
+      overlay = document.createElement('div');
+      overlay.id = 'screenTorch';
+      Object.assign(overlay.style, {
+        position:'absolute', inset:'0', background:'#ffffff',
+        opacity:'0.95', pointerEvents:'none' // laisse les boutons cliquables hors zone
+      });
+      els.videoWrap.appendChild(overlay);
     }
-  } catch (e) { console.warn('Torch via constraints a échoué:', e); }
-
-  // 2) Fallback via ImageCapture
-  try {
-    if ('ImageCapture' in window) {
-      const ic = new ImageCapture(videoTrack);
-      if (ic.setOptions) {
-        await ic.setOptions({ torch: !!on });
+    overlay.style.display = 'block'; screenTorchOn = true;
+  }else{
+    if (overlay){ overlay.style.display = 'none'; }
+    screenTorchOn = false;
+  }
+}
+async function setTorch(on){
+  // 1) Essayez le vrai torch
+  if (videoTrack?.getCapabilities){
+    try{
+      const caps = videoTrack.getCapabilities();
+      if ('torch' in caps){
+        await videoTrack.applyConstraints({ advanced:[{ torch: !!on }] });
+        screenTorch(false);
         return true;
       }
-      if (ic.getPhotoCapabilities) {
-        const caps = await ic.getPhotoCapabilities();
-        if (caps.fillLightMode && caps.fillLightMode.includes('flash')) {
-          await ic.setOptions({ torch: !!on });
-          return true;
-        }
-      }
+    }catch(e){ console.warn('Torch via constraints:', e); }
+  }
+  // 2) Fallback ImageCapture
+  try{
+    if ('ImageCapture' in window && videoTrack){
+      const ic = new ImageCapture(videoTrack);
+      if (ic.setOptions){ await ic.setOptions({ torch: !!on }); screenTorch(false); return true; }
     }
-  } catch (e) { console.warn('Torch via ImageCapture a échoué:', e); }
+  }catch(e){ console.warn('Torch via ImageCapture:', e); }
 
-  return false;
+  // 3) Dernier recours : « torch d’écran »
+  screenTorch(!!on);
+  return false; // on retourne false pour indiquer que le vrai flash n'est pas dispo
 }
 async function setZoom(v){
   if (!videoTrack?.getCapabilities) return false;
@@ -202,12 +191,12 @@ async function setZoom(v){
 els.btnTorch.addEventListener('click', async ()=>{
   const on = els.btnTorch.dataset.on==='1';
   const ok = await setTorch(!on);
-  if (ok){ els.btnTorch.dataset.on = on?'0':'1'; els.btnTorch.textContent = on?'Lampe OFF':'Lampe ON'; }
-  else alert("Lampe non supportée sur cette caméra.");
+  els.btnTorch.dataset.on = on?'0':'1';
+  els.btnTorch.textContent = (!on) ? (ok?'Lampe ON':'Lampe (écran) ON') : 'Lampe OFF';
 });
 els.zoomRange.addEventListener('input', e=> setZoom(e.target.value));
 
-// ===== Overlay (cadre + netteté) aligné sur le CONTENEUR =====
+// ===== Overlay (cadre + netteté) =====
 function getRoi(w,h){
   const oneD = is1DSelected();
   if (oneD){
@@ -221,13 +210,6 @@ function getRoi(w,h){
 function drawReticle(ctx, roi){
   ctx.save(); ctx.strokeStyle='rgba(255,122,0,0.95)'; ctx.lineWidth=3; ctx.setLineDash([10,6]);
   ctx.strokeRect(roi.x, roi.y, roi.w, roi.h); ctx.restore();
-}
-function getActiveVideoEl(){
-  if (usingQuagga){
-    // Quagga insère son propre <video> dans videoWrap
-    return els.videoWrap.querySelector('video');
-  }
-  return els.video;
 }
 function computeSharpness(videoEl, roi, tmpCanvas, tmpCtx){
   if (!videoEl || videoEl.readyState < 2) return 0;
@@ -255,7 +237,6 @@ function startOverlayLoop(){
 
   function loop(){
     rafId = requestAnimationFrame(loop);
-    // Taille basée sur le CONTENEUR (pas la balise video)
     const rect = els.videoWrap.getBoundingClientRect();
     const w = canvas.width = rect.width|0, h = canvas.height = rect.height|0;
     if (!w||!h) return;
@@ -268,7 +249,9 @@ function startOverlayLoop(){
     if (!startOverlayLoop._last || now-startOverlayLoop._last>200){
       startOverlayLoop._last = now;
       try{
-        const vEl = getActiveVideoEl();
+        const vEl = usingQuagga
+          ? els.videoWrap.querySelector('video')   // vidéo insérée par Quagga
+          : els.video;
         const sharp = computeSharpness(vEl, roi, tmpCanvas, tmpCtx);
         els.focusMeter.textContent = `Net: ${sharp.toFixed(0)}`;
         els.focusMeter.style.boxShadow = `0 0 0 2px ${colorForSharpness(sharp)} inset`;
@@ -284,6 +267,30 @@ function stopOverlayLoop(){
   els.focusMeter.textContent='Net: —'; els.focusMeter.style.boxShadow='none';
 }
 
+// ===== Flux caméra (on gère le stream nous-mêmes) =====
+async function openStreamForDevice(deviceId){
+  // On force deviceId EXCLUSIF (et on enlève facingMode pour que Samsung respecte le choix)
+  const constraints = {
+    video: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      width: isSamsungS24() ? { ideal: 1280, max: 1280 } : { ideal: 1920 },
+      height:isSamsungS24() ? { ideal: 720,  max: 720  } : { ideal: 1080 },
+      frameRate: { ideal: 30, max: 30 }
+    },
+    audio: false
+  };
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  return stream;
+}
+function attachStream(stream){
+  // Stop ancien stream
+  if (currentStream){ try{ currentStream.getTracks().forEach(t=>t.stop()); }catch{} }
+  currentStream = stream;
+  els.video.srcObject = stream;
+  const tracks = stream.getVideoTracks();
+  videoTrack = tracks && tracks[0] ? tracks[0] : null;
+}
+
 // ===== Quagga2 Fallback =====
 function quaggaReaders(){
   if (is1DSelected()){
@@ -297,40 +304,44 @@ function quaggaReaders(){
 function startQuagga(){
   if (usingQuagga) return;
   usingQuagga = true;
+
+  // ZXing lit sur le même <video> (même stream). On reset ZXing mais on garde le stream.
   try{ codeReader && codeReader.reset(); }catch{}
 
-  // Cache notre <video> pour éviter le "double flux" visible
-  els.video.style.display = 'none';
+  // Important : sur S24, laissez un petit délai avant de (re)lier Quagga
+  const delay = isSamsungS24() ? 300 : 50;
 
-  Quagga.init({
-    inputStream: {
-      name: 'Live',
-      type: 'LiveStream',
-      target: els.videoWrap,
-      constraints: { facingMode:'environment', width:{ideal:1920}, height:{ideal:1080} }
-    },
-    locator: { patchSize:'medium', halfSample:true },
-    numOfWorkers: 2,
-    frequency: 15,
-    decoder: { readers: quaggaReaders() },
-    locate: true,
-    // Bande centrale pour les 1D
-    area: { top: "39%", right: "7%", left: "7%", bottom: "39%" }
-  }, (err)=>{
-    if (err){ console.error(err); setStatus('Erreur Quagga: '+err.message, false); usingQuagga=false; els.video.style.display='block'; return; }
-    Quagga.start();
-    setStatus('Lecture 1D (fallback) en cours…');
-  });
-
-  Quagga.onDetected(onQuaggaDetected);
+  setTimeout(()=> {
+    Quagga.init({
+      inputStream: {
+        name: 'Live',
+        type: 'LiveStream',
+        target: els.videoWrap,
+        constraints: {
+          // ⚠️ forcer le même deviceId que l'utilisateur a choisi
+          deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+          width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'environment'
+        }
+      },
+      locator: { patchSize:'medium', halfSample:true },
+      numOfWorkers: 2,
+      frequency: 15,
+      decoder: { readers: quaggaReaders() },
+      locate: true,
+      area: { top: "39%", right: "7%", left: "7%", bottom: "39%" }
+    }, (err)=>{
+      if (err){ console.error(err); setStatus('Erreur Quagga: '+err.message, false); usingQuagga=false; return; }
+      Quagga.start();
+      setStatus('Lecture 1D (fallback) en cours…');
+    });
+    Quagga.onDetected(onQuaggaDetected);
+  }, delay);
 }
 function stopQuagga(){
   if (!usingQuagga) return;
   try{ Quagga.stop(); }catch{}
   Quagga.offDetected(onQuaggaDetected);
   usingQuagga = false;
-  // Ré-affiche notre <video> pour ZXing
-  els.video.style.display = 'block';
 }
 function onQuaggaDetected(res){
   const code = res?.codeResult?.code;
@@ -339,7 +350,7 @@ function onQuaggaDetected(res){
   lastCode = code; lastTime = Date.now();
   setStatus('✅ Code 1D détecté (fallback)');
   feedback();
-  stopQuagga(); // stop après détection
+  stopQuagga();
 }
 
 // ===== Start/Stop/Restart =====
@@ -351,12 +362,15 @@ async function start(){
     await ensurePermission();
     const cams = await listCamerasAfterPermission();
     if (!cams.length){ setStatus("Aucune caméra détectée.", false); return; }
-    const selectedId = els.camSel.value || cams[0].deviceId;
+    selectedDeviceId = els.camSel.value || (cams[0] && cams[0].deviceId) || null;
 
-    const constraints = getVideoConstraints(selectedId);
+    // Ouvre explicitement le flux pour CE deviceId
+    const stream = await openStreamForDevice(selectedDeviceId);
+    attachStream(stream);
 
-    await codeReader.decodeFromConstraints(constraints, els.video, (result, err) => {
-      if (usingQuagga) return;
+    // Lancer ZXing sur NOTRE élément vidéo (et pas via getUserMedia interne)
+    await codeReader.decodeFromVideoElement(els.video, (result, err) => {
+      if (usingQuagga) return; // si fallback actif, on ignore ZXing
       if (result){
         const code = result.getText();
         const now = Date.now();
@@ -373,11 +387,10 @@ async function start(){
       }
     });
 
-    await waitForStream();
     initCameraControls();
     startOverlayLoop();
 
-    // Fallback timing
+    // Fallback timing (évite écran noir sur S24 en laissant respirer le capteur)
     const timeoutMs = is1DSelected() ? 2500 : 4000;
     fallbackTimer = setTimeout(()=>{
       const onlyQR = currentFormats?.length===1 && currentFormats[0]===BarcodeFormat.QR_CODE;
@@ -398,11 +411,10 @@ function stop(){
   try{ codeReader && codeReader.reset(); }catch{}
   stopQuagga();
   if (fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer=null; }
-  const s = els.video.srcObject;
-  if (s && s.getTracks) s.getTracks().forEach(t=>t.stop());
-  els.video.srcObject=null; videoTrack=null;
+  try{ if (currentStream) currentStream.getTracks().forEach(t=>t.stop()); }catch{}
+  currentStream = null; videoTrack = null;
 
-  stopOverlayLoop();
+  stopOverlayLoop(); screenTorch(false);
 
   els.btnStart.disabled=false; els.btnStop.disabled=true;
   els.btnTorch.disabled=true; els.zoomWrap.hidden=true;
@@ -413,7 +425,7 @@ function stop(){
 function restartScan(){ stop(); start(); }
 
 // ===== Events =====
-els.camSel.addEventListener('change', ()=>{ if (scanning) restartScan(); });
+els.camSel.addEventListener('change', ()=>{ selectedDeviceId = els.camSel.value; if (scanning) restartScan(); });
 els.codeType.addEventListener('change', ()=>{ if (scanning) restartScan(); });
 els.btnStart.addEventListener('click', start);
 els.btnStop.addEventListener('click', stop);
