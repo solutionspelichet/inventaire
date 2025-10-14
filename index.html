@@ -10,7 +10,6 @@
   <link rel="icon" href="./assets/pelichet-logo.png" />
   <link rel="stylesheet" href="./style.css" />
 
-  <!-- Libs de lecture codes -->
   <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
   <script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js"></script>
 </head>
@@ -26,56 +25,45 @@
       <h2>1) Scanner un code</h2>
 
       <div class="row">
-        <button id="btnStart">Démarrer la caméra</button>
-        <button id="btnStop" disabled>Arrêter</button>
+        <button id="btnStart">▶️ Caméra en direct</button>
+        <button id="btnStop" disabled>⏹️ Stop</button>
+        <button id="btnPhoto">📸 Scanner via photo</button>
+        <input id="photoInput" type="file" accept="image/*" capture="environment" hidden>
+      </div>
 
-        <select id="cameraSelect" title="Caméra"></select>
-
-        <!-- Résolution & moteur -->
-        <select id="resSelect" title="Résolution">
+      <div class="row">
+        <select id="cameraSelect"></select>
+        <select id="resSelect">
           <option value="1280x720">720p</option>
           <option value="1920x1080" selected>1080p</option>
-          <option value="2560x1440">1440p</option>
           <option value="3840x2160">2160p</option>
         </select>
-
-        <select id="engineSelect" title="Moteur">
-          <option value="auto" selected>Auto (Natif→ZXing→Quagga)</option>
-          <option value="native">Natif (BarcodeDetector)</option>
+        <select id="engineSelect">
+          <option value="auto" selected>Auto</option>
+          <option value="native">Natif</option>
           <option value="zxing">ZXing</option>
-          <option value="quagga">Quagga 1D</option>
+          <option value="quagga">Quagga</option>
         </select>
       </div>
 
       <div class="video-wrap" id="videoWrap">
         <video id="preview" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
-        <div id="focusMeter" class="focus-meter">Net: —</div>
         <div id="diag" class="focus-meter left">–</div>
       </div>
 
       <div class="row controls">
         <button id="btnTorch" class="secondary" disabled>Lampe OFF</button>
-
         <div id="zoomWrap" class="zoom-wrap" hidden>
           <label for="zoomRange">Zoom</label>
-          <input id="zoomRange" type="range" min="1" max="1" step="0.1" value="1" />
+          <input id="zoomRange" type="range" min="1" max="3" step="0.1" value="1">
           <span id="zoomValue">1×</span>
         </div>
-
-        <button id="btnMacro" class="secondary">Mode proche (Macro)</button>
       </div>
 
       <div class="row">
         <label>Code détecté</label>
         <input id="codeValue" type="text" placeholder="ou saisie manuelle" />
-        <select id="codeType" title="Type de code">
-          <option value="auto">Auto</option>
-          <option value="QR_CODE">QR</option>
-          <option value="EAN_13">EAN-13</option>
-          <option value="CODE_128">Code 128</option>
-          <option value="CODE_39">Code 39</option>
-        </select>
       </div>
     </section>
 
@@ -106,7 +94,6 @@
 
   <footer class="app-footer">© Pelichet</footer>
 
-  <!-- Config API -->
   <script>
     window.APP_CONFIG = {
       API_URL: "https://script.google.com/macros/s/AKfycbx3xXSvHYh40FzislJXiR9knA_B7H5T_awb1fFmzRJTOMzh5_4aUbl6IvRc7-3M8psu/exec"
