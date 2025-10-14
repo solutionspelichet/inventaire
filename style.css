@@ -27,3 +27,8 @@ button[disabled]{opacity:.5;cursor:not-allowed}
 video{width:100%;height:auto}
 .status{min-height:24px}
 .app-footer{text-align:center;padding:24px;color:#777}
+.controls { justify-content: space-between; }
+.secondary { background:#fff; color:#ff7a00; border:1px solid #ff7a00; }
+.zoom-wrap { display:flex; align-items:center; gap:8px; }
+#zoomRange { width:180px; }
+
