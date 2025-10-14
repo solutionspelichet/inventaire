@@ -1,85 +1,83 @@
 <!doctype html>
 <html lang="fr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pelichet • Scan → Sheet</title>
-
-<meta name="theme-color" content="#ff7a00">
-
-
-<link rel="manifest" href="./manifest.json">
-<link rel="icon" href="./assets/logo-pelichet.png">
-<img src="./assets/logo-pelichet.png" alt="Pelichet" class="logo">
-<script src="https://unpkg.com/@zxing/library@0.20.0"></script>
-  
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pelichet • Scan → Sheets</title>
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#ff7a00">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="icon" href="./assets/pelichet-logo.png">
+  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
 </head>
+
 <body>
-<header class="app-header">
-<img src="assets/logo-pelichet.png" alt="Pelichet" class="logo">
-<h1>Scan → Google Sheets</h1>
-</header>
+  <header class="app-header">
+    <img src="./assets/pelichet-logo.png" alt="Pelichet" class="logo">
+    <h1>Scan → Google Sheets</h1>
+  </header>
 
+  <main class="container">
+    <section class="card">
+      <h2>1) Scanner un code</h2>
+      <div class="video-wrap">
+        <video id="preview" autoplay playsinline muted></video>
+      </div>
+      <div class="row">
+        <button id="btnStart">Démarrer la caméra</button>
+        <button id="btnStop" disabled>Arrêter</button>
+        <select id="cameraSelect"></select>
+      </div>
+      <div class="row">
+        <label>Code détecté</label>
+        <input id="codeValue" type="text" placeholder="ou saisie manuelle">
+        <select id="codeType">
+          <option value="auto">Auto</option>
+          <option value="QR_CODE">QR</option>
+          <option value="EAN_13">EAN-13</option>
+          <option value="CODE_128">Code 128</option>
+          <option value="CODE_39">Code 39</option>
+        </select>
+      </div>
+    </section>
 
-<main class="container">
-<section class="card">
-<h2>1) Scanner un code</h2>
-<div class="video-wrap">
-<video id="preview" autoplay playsinline></video>
-</div>
-<div class="row">
-<button id="btnStart">Démarrer la caméra</button>
-<button id="btnStop" disabled>Arrêter</button>
-<select id="cameraSelect"></select>
-</div>
-<div class="row">
-<label>Code détecté</label>
-<input id="codeValue" type="text" placeholder="OU saisie manuelle si besoin">
-<select id="codeType">
-<option value="auto">Auto</option>
-<option value="QR_CODE">QR</option>
-<option value="EAN_13">EAN-13</option>
-<option value="CODE_128">Code 128</option>
-<option value="CODE_39">Code 39</option>
-</select>
-</div>
-</section>
+    <section class="card">
+      <h2>2) Détails du mouvement</h2>
+      <div class="row">
+        <label for="depart">Lieu de départ</label>
+        <select id="depart"></select>
+      </div>
+      <div class="row">
+        <label for="destination">Lieu de destination</label>
+        <select id="destination"></select>
+      </div>
+      <div class="row">
+        <label for="dateMvt">Date du mouvement</label>
+        <input id="dateMvt" type="date">
+      </div>
+      <div class="row">
+        <label for="notes">Notes</label>
+        <input id="notes" type="text" placeholder="Observation">
+      </div>
+      <div class="row">
+        <button id="btnSubmit">Enregistrer</button>
+      </div>
+      <p id="status" class="status"></p>
+    </section>
+  </main>
 
+  <footer class="app-footer">© Pelichet</footer>
 
-<section class="card">
-<h2>2) Détails du mouvement</h2>
-<div class="row">
-<label for="depart">Lieu de départ</label>
-<select id="depart"></select>
-</div>
-<div class="row">
-<label for="destination">Lieu de destination</label>
-<select id="destination"></select>
-</div>
-<div class="row">
-<label for="dateMvt">Date du mouvement</label>
-<input id="dateMvt" type="date">
-</div>
-<div class="row">
-<label for="notes">Notes (optionnel)</label>
-<input id="notes" type="text" placeholder="Observation">
-</div>
-<div class="row">
-<button id="btnSubmit">Enregistrer</button>
-</div>
-<p id="status" class="status"></p>
-</section>
-</main>
-
-
-<footer class="app-footer">© Pelichet</footer>
-
-
-<script>
-  window.APP_CONFIG = {
-    API_URL: 'https://script.google.com/macros/s/AKfycbx3xXSvHYh40FzislJXiR9knA_B7H5T_awb1fFmzRJTOMzh5_4aUbl6IvRc7-3M8psu/exec'
-  };
-</script>
-<script src="./script.js"></script>
+  <script>
+    window.APP_CONFIG = {
+      API_URL: 'https://script.google.com/macros/s/AKfycbx3xXSvHYh40FzislJXiR9knA_B7H5T_awb1fFmzRJTOMzh5_4aUbl6IvRc7-3M8psu/exec'
+    };
+  </script>
+  <script src="./script.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./service-worker.js');
+    }
+  </script>
 </body>
 </html>
