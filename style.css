@@ -20,8 +20,28 @@ label{ min-width:160px }
 input,select,button{ padding:10px 12px; border-radius:12px; border:1px solid #ddd; font-size:16px }
 button{ background:var(--orange); color:#fff; border:none; cursor:pointer }
 button[disabled]{ opacity:.5; cursor:not-allowed }
-.video-wrap{ position:relative; width:100%; background:#000; border-radius:12px; overflow:hidden }
-video{ display:block; width:100%; height:auto }
+
+/* === Zone vidéo unifiée (ZXing + Quagga) === */
+.video-wrap{
+  position:relative;
+  width:100%;
+  max-width:900px;
+  aspect-ratio:16/9;            /* force paysage */
+  background:#000;
+  border-radius:12px;
+  overflow:hidden;
+}
+/* Tous les calques internes doivent remplir le conteneur */
+.video-wrap video,
+.video-wrap canvas,
+.video-wrap .drawingBuffer{      /* canvas Quagga */
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;              /* pas de bandes noires */
+}
+
 #overlay{
   position:absolute; inset:0; width:100%; height:100%; pointer-events:none;
 }
@@ -33,7 +53,6 @@ video{ display:block; width:100%; height:auto }
 .status{ min-height:24px }
 .app-footer{ text-align:center; padding:24px; color:#777 }
 
-/* Contrôles caméra */
 .controls { justify-content: space-between; }
 .secondary { background:#fff; color:#ff7a00; border:1px solid #ff7a00; }
 .zoom-wrap { display:flex; align-items:center; gap:8px; }
