@@ -43,9 +43,36 @@ function setStatus(msg, ok=true){ els.status.textContent = msg||''; els.status.s
 function todayISO(){ return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date()); }
 els.dateMvt.value = todayISO();
 
+// --- Détection Samsung S24 (S921/S926/S928) ---
+function isSamsungS24() {
+  const ua = navigator.userAgent || "";
+  return /SM-S92(1|6|8)/i.test(ua) || (/S24/i.test(ua) && /Samsung/i.test(ua));
+}
+
+// --- Contraintes vidéo adaptées ---
+function getVideoConstraints(selectedId) {
+  const base = {
+    facingMode: { ideal: 'environment' },
+    width:  { ideal: 1920 },
+    height: { ideal: 1080 },
+    frameRate: { ideal: 30 },
+    focusMode: 'continuous',
+    advanced: [{ focusMode: 'continuous' }]
+  };
+  if (selectedId) base.deviceId = { exact: selectedId };
+
+  // ⚠️ Sur S24, on passe en 1280x720 / 30fps pour stabiliser autofocus/torch
+  if (isSamsungS24()) {
+    base.width  = { ideal: 1280, max: 1280 };
+    base.height = { ideal: 720,  max: 720  };
+    base.frameRate = { ideal: 30, max: 30 };
+  }
+  return { video: base, audio: false };
+}
+
 // ===== Feedback (bip + vibration + flash cadre) =====
 function feedback(){
-  try{
+  try{ // Web Audio beep ~120ms
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     const osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.type='sine'; osc.frequency.value=880;
@@ -56,10 +83,10 @@ function feedback(){
   }catch{}
   if (navigator.vibrate) navigator.vibrate([50,30,50]);
 
-  const ctx2 = els.overlay.getContext('2d');
-  if (!ctx2) return;
+  const c = els.overlay.getContext('2d');
+  if (!c) return;
   const w=els.overlay.width, h=els.overlay.height;
-  ctx2.save(); ctx2.strokeStyle='rgba(50,205,50,0.95)'; ctx2.lineWidth=5; ctx2.setLineDash([]); ctx2.strokeRect(4,4,w-8,h-8); ctx2.restore();
+  c.save(); c.strokeStyle='rgba(50,205,50,0.95)'; c.lineWidth=5; c.setLineDash([]); c.strokeRect(4,4,w-8,h-8); c.restore();
 }
 
 // ===== Hints / formats =====
@@ -133,10 +160,39 @@ function initCameraControls(){
     els.zoomWrap.hidden=false;
   }
 }
+
+// Torch « double voie » (constraints puis ImageCapture)
 async function setTorch(on){
-  if (!videoTrack?.getCapabilities) return false;
-  const caps = videoTrack.getCapabilities(); if (!('torch' in caps)) return false;
-  try{ await videoTrack.applyConstraints({ advanced:[{ torch:!!on }] }); return true; }catch{ return false; }
+  if (!videoTrack) return false;
+
+  // 1) Tentative standard via applyConstraints
+  try {
+    const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+    if (caps && 'torch' in caps) {
+      await videoTrack.applyConstraints({ advanced: [{ torch: !!on }] });
+      return true;
+    }
+  } catch (e) { console.warn('Torch via constraints a échoué:', e); }
+
+  // 2) Fallback via ImageCapture
+  try {
+    if ('ImageCapture' in window) {
+      const ic = new ImageCapture(videoTrack);
+      if (ic.setOptions) {
+        await ic.setOptions({ torch: !!on });
+        return true;
+      }
+      if (ic.getPhotoCapabilities) {
+        const caps = await ic.getPhotoCapabilities();
+        if (caps.fillLightMode && caps.fillLightMode.includes('flash')) {
+          await ic.setOptions({ torch: !!on });
+          return true;
+        }
+      }
+    }
+  } catch (e) { console.warn('Torch via ImageCapture a échoué:', e); }
+
+  return false;
 }
 async function setZoom(v){
   if (!videoTrack?.getCapabilities) return false;
@@ -258,7 +314,7 @@ function startQuagga(){
     frequency: 15,
     decoder: { readers: quaggaReaders() },
     locate: true,
-    // Limite la zone d'analyse à une bande centrale (évite les décalages et accélère)
+    // Bande centrale pour les 1D
     area: { top: "39%", right: "7%", left: "7%", bottom: "39%" }
   }, (err)=>{
     if (err){ console.error(err); setStatus('Erreur Quagga: '+err.message, false); usingQuagga=false; els.video.style.display='block'; return; }
@@ -297,15 +353,7 @@ async function start(){
     if (!cams.length){ setStatus("Aucune caméra détectée.", false); return; }
     const selectedId = els.camSel.value || cams[0].deviceId;
 
-    const constraints = {
-      video: {
-        deviceId: selectedId ? { exact: selectedId } : undefined,
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 2560 }, height: { ideal: 1440 },
-        focusMode:'continuous', advanced:[{ focusMode:'continuous' }]
-      },
-      audio:false
-    };
+    const constraints = getVideoConstraints(selectedId);
 
     await codeReader.decodeFromConstraints(constraints, els.video, (result, err) => {
       if (usingQuagga) return;
@@ -332,7 +380,6 @@ async function start(){
     // Fallback timing
     const timeoutMs = is1DSelected() ? 2500 : 4000;
     fallbackTimer = setTimeout(()=>{
-      // ne pas fallback si QR seulement
       const onlyQR = currentFormats?.length===1 && currentFormats[0]===BarcodeFormat.QR_CODE;
       if (!usingQuagga && !onlyQR) startQuagga();
     }, timeoutMs);
