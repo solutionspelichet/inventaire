@@ -1,4 +1,80 @@
 // ===== CONFIG =====
+const API_URL = window.APP_CONFIG.API_URL; // Apps Script /exec
+const TZ = 'Europe/Zurich';
+
+
+// ===== ZXing init =====
+const { BrowserMultiFormatReader, NotFoundException } = ZXing;
+const codeReader = new BrowserMultiFormatReader();
+let currentDeviceId = null;
+let scanning = false;
+let lastCode = null;
+let lastTime = 0;
+
+
+const els = {
+video: document.getElementById('preview'),
+btnStart: document.getElementById('btnStart'),
+btnStop: document.getElementById('btnStop'),
+camSel: document.getElementById('cameraSelect'),
+codeValue: document.getElementById('codeValue'),
+codeType: document.getElementById('codeType'),
+depart: document.getElementById('depart'),
+destination: document.getElementById('destination'),
+dateMvt: document.getElementById('dateMvt'),
+notes: document.getElementById('notes'),
+submit: document.getElementById('btnSubmit'),
+status: document.getElementById('status'),
+};
+
+
+function setStatus(msg, ok=true){
+els.status.textContent = msg || '';
+els.status.style.color = ok ? 'green' : 'crimson';
+}
+
+
+function todayLocalISO(){
+const d = new Date();
+const z = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(d);
+const Y = z.find(p=>p.type==='year').value;
+const M = z.find(p=>p.type==='month').value;
+const D = z.find(p=>p.type==='day').value;
+return `${Y}-${M}-${D}`;
+}
+
+
+async function listCameras(){
+const devices = await navigator.mediaDevices.enumerateDevices();
+const cams = devices.filter(d=>d.kind==='videoinput');
+els.camSel.innerHTML = '';
+cams.forEach((c, i)=>{
+const opt = document.createElement('option');
+opt.value = c.deviceId;
+opt.textContent = c.label || `Caméra ${i+1}`;
+els.camSel.appendChild(opt);
+});
+if (cams[0]) currentDeviceId = cams[0].deviceId;
+}
+
+
+async function start(){
+try{
+await listCameras();
+const devId = els.camSel.value || currentDeviceId;
+currentDeviceId = devId;
+await codeReader.decodeFromVideoDevice(devId, els.video, (result, err)=>{
+if(result){
+const code = result.getText();
+const now = Date.now();
+if (code === lastCode && (now - lastTime) < 8000){
+alert('⚠️ Code identique scanné à la suite. Voulez-vous l'enregistrer à nouveau ?');
+// on n'arrête pas, mais on laisse l'utilisateur décider via le bouton Enregistrer
+}
+els.codeValue.value = code;
+lastCode = code; lastTime = now;
+} else if (err && !(err instanceof NotFoundException)) {
+console.warn(err);
 }
 });
 scanning = true;
@@ -26,83 +102,4 @@ els.btnStop.addEventListener('click', stop);
 // Dropdowns depuis Apps Script
 async function loadListes(){
 setStatus('Chargement des listes…');
-const url = `${API_URL}?action=listes`;
-const res = await fetch(url, { method:'GET' });
-const json = await res.json();
-if(!json.ok) throw new Error(json.error || 'Erreur listes');
-const { depart, destination } = json;
-fillSelect(els.depart, depart);
-fillSelect(els.destination, destination);
-setStatus('Listes chargées');
-}
-
-
-function fillSelect(sel, arr){
-sel.innerHTML = '';
-arr.forEach(v=>{
-const opt = document.createElement('option');
-opt.value = v; opt.textContent = v; sel.appendChild(opt);
-});
-}
-
-
-// Date du jour par défaut (modifiable)
-els.dateMvt.value = todayLocalISO();
-
-
-// Validation et envoi
-els.submit.addEventListener('click', async ()=>{
-try{
-const code = (els.codeValue.value || '').trim();
-const type = els.codeType.value;
-const dep = els.depart.value;
-const dst = els.destination.value;
-const dateMvt = els.dateMvt.value; // YYYY-MM-DD
-if(!code) throw new Error('Code manquant');
-if(!dep) throw new Error('Lieu de départ manquant');
-if(!dst) throw new Error('Lieu de destination manquant');
-// Validation: départ = destination autorisé (selon consigne) → on n'empêche pas
-// Validation date (ex: pas dans le futur > 7 jours)
-const maxFutureDays = 7;
-const today = new Date(todayLocalISO());
-const userD = new Date(dateMvt);
-const diffDays = (userD - today) / 86400000;
-if (diffDays > maxFutureDays) throw new Error('Date trop loin dans le futur (>7 jours)');
-
-
-const tzLocal = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, dateStyle:'short', timeStyle:'medium' }).format(new Date());
-const payload = new URLSearchParams({
-action: 'submit',
-code_scanné: code,
-type_code: type,
-lieu_depart: dep,
-lieu_destination: dst,
-date_mouvement: dateMvt,
-timestamp_utc: new Date().toISOString(),
-timestamp_local: tzLocal,
-device_id: navigator.userAgent,
-user_id: '',
-notes: (els.notes.value||'')
-});
-
-
-const res = await fetch(API_URL, {
-method:'POST',
-headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-body: payload.toString()
-});
-const json = await res.json();
-if(!json.ok) throw new Error(json.error || 'Erreur API');
-
-
-setStatus('✅ Enregistré dans Google Sheets');
-// petit reset doux
-els.notes.value='';
-} catch (e){
-console.error(e);
-setStatus('❌ '+e.message, false);
-}
-});
-
-
 window.addEventListener('load', loadListes);
