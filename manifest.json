@@ -1,0 +1,9 @@
+{
+  "name": "Fusion Suivi & Extraction → Google Sheet",
+  "short_name": "Fusion XLSX",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f766e",
+  "icons": []
+}
