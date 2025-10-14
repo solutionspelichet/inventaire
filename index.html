@@ -23,15 +23,28 @@
       <div class="video-wrap">
         <video id="preview" autoplay playsinline muted></video>
       </div>
+
       <div class="row">
         <button id="btnStart">Démarrer la caméra</button>
         <button id="btnStop" disabled>Arrêter</button>
-        <select id="cameraSelect"></select>
+        <select id="cameraSelect" title="Caméra"></select>
       </div>
+
+      <!-- Nouveaux contrôles caméra -->
+      <div class="row controls">
+        <button id="btnTorch" class="secondary" disabled>Lampe OFF</button>
+
+        <div id="zoomWrap" class="zoom-wrap" hidden>
+          <label for="zoomRange">Zoom</label>
+          <input id="zoomRange" type="range" min="1" max="1" step="0.1" value="1">
+          <span id="zoomValue">1×</span>
+        </div>
+      </div>
+
       <div class="row">
         <label>Code détecté</label>
         <input id="codeValue" type="text" placeholder="ou saisie manuelle">
-        <select id="codeType">
+        <select id="codeType" title="Type de code">
           <option value="auto">Auto</option>
           <option value="QR_CODE">QR</option>
           <option value="EAN_13">EAN-13</option>
