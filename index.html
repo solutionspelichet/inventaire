@@ -1,20 +1,23 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pelichet • Scan → Sheets</title>
-  <link rel="manifest" href="./manifest.json">
-  <meta name="theme-color" content="#ff7a00">
-  <link rel="stylesheet" href="./style.css">
-  <link rel="icon" href="./assets/pelichet-logo.png">
+
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#ff7a00" />
+  <link rel="icon" href="./assets/pelichet-logo.png" />
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Libs de lecture codes -->
   <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
-  <script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.js"></script>
+  <script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js"></script>
 </head>
 
 <body>
   <header class="app-header">
-    <img src="./assets/pelichet-logo.png" alt="Pelichet" class="logo">
+    <img src="./assets/pelichet-logo.png" alt="Pelichet" class="logo" />
     <h1>Scan → Google Sheets</h1>
   </header>
 
@@ -27,15 +30,17 @@
         <button id="btnStop" disabled>Arrêter</button>
 
         <select id="cameraSelect" title="Caméra"></select>
-        <!-- Nouveau : choix de résolution et moteur -->
+
+        <!-- Résolution & moteur -->
         <select id="resSelect" title="Résolution">
           <option value="1280x720">720p</option>
           <option value="1920x1080" selected>1080p</option>
           <option value="2560x1440">1440p</option>
           <option value="3840x2160">2160p</option>
         </select>
+
         <select id="engineSelect" title="Moteur">
-          <option value="auto" selected>Auto (Natif → ZXing → Quagga)</option>
+          <option value="auto" selected>Auto (Natif→ZXing→Quagga)</option>
           <option value="native">Natif (BarcodeDetector)</option>
           <option value="zxing">ZXing</option>
           <option value="quagga">Quagga 1D</option>
@@ -46,21 +51,24 @@
         <video id="preview" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
         <div id="focusMeter" class="focus-meter">Net: —</div>
-        <div id="diag" class="focus-meter" style="left:10px; right:auto;">–</div>
+        <div id="diag" class="focus-meter left">–</div>
       </div>
 
       <div class="row controls">
         <button id="btnTorch" class="secondary" disabled>Lampe OFF</button>
+
         <div id="zoomWrap" class="zoom-wrap" hidden>
           <label for="zoomRange">Zoom</label>
-          <input id="zoomRange" type="range" min="1" max="1" step="0.1" value="1">
+          <input id="zoomRange" type="range" min="1" max="1" step="0.1" value="1" />
           <span id="zoomValue">1×</span>
         </div>
+
+        <button id="btnMacro" class="secondary">Mode proche (Macro)</button>
       </div>
 
       <div class="row">
         <label>Code détecté</label>
-        <input id="codeValue" type="text" placeholder="ou saisie manuelle">
+        <input id="codeValue" type="text" placeholder="ou saisie manuelle" />
         <select id="codeType" title="Type de code">
           <option value="auto">Auto</option>
           <option value="QR_CODE">QR</option>
@@ -83,11 +91,11 @@
       </div>
       <div class="row">
         <label for="dateMvt">Date du mouvement</label>
-        <input id="dateMvt" type="date">
+        <input id="dateMvt" type="date" />
       </div>
       <div class="row">
         <label for="notes">Notes</label>
-        <input id="notes" type="text" placeholder="Observation">
+        <input id="notes" type="text" placeholder="Observation" />
       </div>
       <div class="row">
         <button id="btnSubmit">Enregistrer</button>
@@ -98,15 +106,16 @@
 
   <footer class="app-footer">© Pelichet</footer>
 
+  <!-- Config API -->
   <script>
     window.APP_CONFIG = {
-      API_URL: 'https://script.google.com/macros/s/AKfycbx3xXSvHYh40FzislJXiR9knA_B7H5T_awb1fFmzRJTOMzh5_4aUbl6IvRc7-3M8psu/exec'
+      API_URL: "https://script.google.com/macros/s/AKfycbx3xXSvHYh40FzislJXiR9knA_B7H5T_awb1fFmzRJTOMzh5_4aUbl6IvRc7-3M8psu/exec"
     };
   </script>
   <script src="./script.js"></script>
   <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./service-worker.js');
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./service-worker.js");
     }
   </script>
 </body>
