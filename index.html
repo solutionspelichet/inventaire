@@ -20,8 +20,12 @@
   <main class="container">
     <section class="card">
       <h2>1) Scanner un code</h2>
-      <div class="video-wrap">
+
+      <div class="video-wrap" id="videoWrap">
         <video id="preview" autoplay playsinline muted></video>
+        <!-- Overlay cadre + métrique netteté -->
+        <canvas id="overlay"></canvas>
+        <div id="focusMeter" class="focus-meter">Net: —</div>
       </div>
 
       <div class="row">
@@ -30,7 +34,7 @@
         <select id="cameraSelect" title="Caméra"></select>
       </div>
 
-      <!-- Nouveaux contrôles caméra -->
+      <!-- Contrôles caméra -->
       <div class="row controls">
         <button id="btnTorch" class="secondary" disabled>Lampe OFF</button>
 
